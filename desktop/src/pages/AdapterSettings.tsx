@@ -1,0 +1,238 @@
+import { useState, useEffect } from 'react'
+import { useAdapterStore } from '../stores/adapterStore'
+import { useTranslation } from '../i18n'
+import { Input } from '../components/shared/Input'
+import { Button } from '../components/shared/Button'
+import { DirectoryPicker } from '../components/shared/DirectoryPicker'
+
+export function AdapterSettings() {
+  const t = useTranslation()
+  const { config, isLoading, fetchConfig, updateConfig } = useAdapterStore()
+
+  // Server
+  const [serverUrl, setServerUrl] = useState('')
+  const [defaultProjectDir, setDefaultProjectDir] = useState('')
+
+  // Telegram
+  const [tgBotToken, setTgBotToken] = useState('')
+  const [tgAllowedUsers, setTgAllowedUsers] = useState('')
+
+  // Feishu
+  const [fsAppId, setFsAppId] = useState('')
+  const [fsAppSecret, setFsAppSecret] = useState('')
+  const [fsEncryptKey, setFsEncryptKey] = useState('')
+  const [fsVerificationToken, setFsVerificationToken] = useState('')
+  const [fsAllowedUsers, setFsAllowedUsers] = useState('')
+  const [fsStreamingCard, setFsStreamingCard] = useState(false)
+
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle')
+  const [saveError, setSaveError] = useState('')
+
+  useEffect(() => {
+    fetchConfig()
+  }, [])
+
+  // Sync form state when config is loaded
+  useEffect(() => {
+    setServerUrl(config.serverUrl ?? '')
+    setDefaultProjectDir(config.defaultProjectDir ?? '')
+    setTgBotToken(config.telegram?.botToken ?? '')
+    setTgAllowedUsers(config.telegram?.allowedUsers?.join(', ') ?? '')
+    setFsAppId(config.feishu?.appId ?? '')
+    setFsAppSecret(config.feishu?.appSecret ?? '')
+    setFsEncryptKey(config.feishu?.encryptKey ?? '')
+    setFsVerificationToken(config.feishu?.verificationToken ?? '')
+    setFsAllowedUsers(config.feishu?.allowedUsers?.join(', ') ?? '')
+    setFsStreamingCard(config.feishu?.streamingCard ?? false)
+  }, [config])
+
+  async function handleSave() {
+    setIsSaving(true)
+    setSaveStatus('idle')
+    setSaveError('')
+    try {
+      const patch: Record<string, unknown> = {}
+
+      if (serverUrl) patch.serverUrl = serverUrl
+      if (defaultProjectDir) patch.defaultProjectDir = defaultProjectDir
+
+      const tgUsers = tgAllowedUsers
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map(Number)
+        .filter((n) => !isNaN(n))
+
+      patch.telegram = {
+        botToken: tgBotToken || undefined,
+        allowedUsers: tgUsers.length ? tgUsers : [],
+      }
+
+      const fsUsers = fsAllowedUsers
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+
+      patch.feishu = {
+        appId: fsAppId || undefined,
+        appSecret: fsAppSecret || undefined,
+        encryptKey: fsEncryptKey || undefined,
+        verificationToken: fsVerificationToken || undefined,
+        allowedUsers: fsUsers.length ? fsUsers : [],
+        streamingCard: fsStreamingCard,
+      }
+
+      await updateConfig(patch)
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus('idle'), 2000)
+    } catch (err) {
+      setSaveStatus('error')
+      setSaveError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12 text-[var(--color-text-tertiary)]">
+        <span className="material-symbols-outlined animate-spin text-[20px] mr-2">progress_activity</span>
+        Loading...
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-w-2xl space-y-8">
+      {/* Description */}
+      <div>
+        <p className="text-sm text-[var(--color-text-secondary)]">{t('settings.adapters.description')}</p>
+      </div>
+
+      {/* Server URL */}
+      <Input
+        label={t('settings.adapters.serverUrl')}
+        value={serverUrl}
+        onChange={(e) => setServerUrl(e.target.value)}
+        placeholder={t('settings.adapters.serverUrlPlaceholder')}
+      />
+
+      {/* Default Project */}
+      <div className="flex flex-col gap-1">
+        <label className="text-sm font-medium text-[var(--color-text-primary)]">
+          {t('settings.adapters.defaultProject')}
+        </label>
+        <DirectoryPicker value={defaultProjectDir} onChange={setDefaultProjectDir} />
+        <p className="text-xs text-[var(--color-text-tertiary)]">
+          {t('settings.adapters.defaultProjectHint')}
+        </p>
+      </div>
+
+      {/* Telegram */}
+      <section className="rounded-xl border border-[var(--color-border)] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 bg-[var(--color-surface-hover)] border-b border-[var(--color-border)]">
+          <span className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.adapters.telegram')}</span>
+        </div>
+        <div className="p-4 space-y-4">
+          <Input
+            label={t('settings.adapters.botToken')}
+            type="password"
+            value={tgBotToken}
+            onChange={(e) => setTgBotToken(e.target.value)}
+            placeholder={t('settings.adapters.botTokenPlaceholder')}
+          />
+          <div className="flex flex-col gap-1">
+            <Input
+              label={t('settings.adapters.allowedUsers')}
+              value={tgAllowedUsers}
+              onChange={(e) => setTgAllowedUsers(e.target.value)}
+              placeholder={t('settings.adapters.tgAllowedUsersPlaceholder')}
+            />
+            <p className="text-xs text-[var(--color-text-tertiary)]">{t('settings.adapters.allowedUsersHint')}</p>
+          </div>
+        </div>
+      </section>
+
+      {/* Feishu */}
+      <section className="rounded-xl border border-[var(--color-border)] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 bg-[var(--color-surface-hover)] border-b border-[var(--color-border)]">
+          <span className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.adapters.feishu')}</span>
+        </div>
+        <div className="p-4 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label={t('settings.adapters.appId')}
+              value={fsAppId}
+              onChange={(e) => setFsAppId(e.target.value)}
+              placeholder={t('settings.adapters.appIdPlaceholder')}
+            />
+            <Input
+              label={t('settings.adapters.appSecret')}
+              type="password"
+              value={fsAppSecret}
+              onChange={(e) => setFsAppSecret(e.target.value)}
+              placeholder={t('settings.adapters.appSecretPlaceholder')}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label={t('settings.adapters.encryptKey')}
+              type="password"
+              value={fsEncryptKey}
+              onChange={(e) => setFsEncryptKey(e.target.value)}
+              placeholder={t('settings.adapters.encryptKeyPlaceholder')}
+            />
+            <Input
+              label={t('settings.adapters.verificationToken')}
+              type="password"
+              value={fsVerificationToken}
+              onChange={(e) => setFsVerificationToken(e.target.value)}
+              placeholder={t('settings.adapters.verificationTokenPlaceholder')}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Input
+              label={t('settings.adapters.allowedUsers')}
+              value={fsAllowedUsers}
+              onChange={(e) => setFsAllowedUsers(e.target.value)}
+              placeholder={t('settings.adapters.fsAllowedUsersPlaceholder')}
+            />
+            <p className="text-xs text-[var(--color-text-tertiary)]">{t('settings.adapters.allowedUsersHint')}</p>
+          </div>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={fsStreamingCard}
+              onChange={(e) => setFsStreamingCard(e.target.checked)}
+              className="w-4 h-4 rounded border-[var(--color-border)] accent-[var(--color-brand)]"
+            />
+            <div>
+              <span className="text-sm text-[var(--color-text-primary)]">{t('settings.adapters.streamingCard')}</span>
+              <p className="text-xs text-[var(--color-text-tertiary)]">{t('settings.adapters.streamingCardDesc')}</p>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      {/* Save */}
+      <div className="flex items-center gap-3">
+        <Button onClick={handleSave} loading={isSaving}>
+          {saveStatus === 'saved' ? t('settings.adapters.saved') : t('settings.adapters.save')}
+        </Button>
+        {saveStatus === 'saved' && (
+          <span className="text-sm text-[var(--color-success)]">
+            <span className="material-symbols-outlined text-[16px] align-middle mr-1">check_circle</span>
+            {t('settings.adapters.saved')}
+          </span>
+        )}
+        {saveStatus === 'error' && (
+          <span className="text-sm text-[var(--color-error)]">
+            <span className="material-symbols-outlined text-[16px] align-middle mr-1">error</span>
+            {saveError}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}

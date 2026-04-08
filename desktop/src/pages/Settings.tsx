@@ -11,8 +11,9 @@ import type { Locale } from '../i18n'
 import { PROVIDER_PRESETS } from '../config/providerPresets'
 import type { ProviderPreset } from '../config/providerPresets'
 import type { SavedProvider, UpdateProviderInput, ProviderTestResult, ModelMapping } from '../types/provider'
+import { AdapterSettings } from './AdapterSettings'
 
-type SettingsTab = 'providers' | 'permissions' | 'general'
+type SettingsTab = 'providers' | 'permissions' | 'general' | 'adapters'
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
@@ -38,6 +39,7 @@ export function Settings() {
           <TabButton icon="dns" label={t('settings.tab.providers')} active={activeTab === 'providers'} onClick={() => setActiveTab('providers')} />
           <TabButton icon="shield" label={t('settings.tab.permissions')} active={activeTab === 'permissions'} onClick={() => setActiveTab('permissions')} />
           <TabButton icon="tune" label={t('settings.tab.general')} active={activeTab === 'general'} onClick={() => setActiveTab('general')} />
+          <TabButton icon="chat" label={t('settings.tab.adapters')} active={activeTab === 'adapters'} onClick={() => setActiveTab('adapters')} />
         </div>
 
         {/* Tab content */}
@@ -45,6 +47,7 @@ export function Settings() {
           {activeTab === 'providers' && <ProviderSettings />}
           {activeTab === 'permissions' && <PermissionSettings />}
           {activeTab === 'general' && <GeneralSettings />}
+          {activeTab === 'adapters' && <AdapterSettings />}
         </div>
       </div>
     </div>

@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { sessionsApi, type RecentProject } from '../../api/sessions'
 import { filesystemApi } from '../../api/filesystem'
 import { useTranslation } from '../../i18n'
@@ -23,17 +24,50 @@ export function DirectoryPicker({ value, onChange }: Props) {
   const [browsePath, setBrowsePath] = useState('')
   const [browseParent, setBrowseParent] = useState('')
   const [loading, setLoading] = useState(false)
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; direction: 'up' | 'down' } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
-  // Close on outside click
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  const updateDropdownPos = useCallback(() => {
+    if (!triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    const DROPDOWN_HEIGHT = 380 // approximate max height
+    const spaceAbove = rect.top
+    const spaceBelow = window.innerHeight - rect.bottom
+    const direction = spaceBelow >= DROPDOWN_HEIGHT || spaceBelow >= spaceAbove ? 'down' : 'up'
+    setDropdownPos({
+      top: direction === 'down' ? rect.bottom + 4 : rect.top - 4,
+      left: rect.left,
+      direction,
+    })
+  }, [])
+
+  // Close on outside click (checks both trigger and portal dropdown)
   useEffect(() => {
     if (!isOpen) return
     const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false)
+      const target = e.target as Node
+      if (ref.current?.contains(target)) return
+      if (dropdownRef.current?.contains(target)) return
+      setIsOpen(false)
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [isOpen])
+
+  // Recalculate position on scroll/resize while open
+  useEffect(() => {
+    if (!isOpen) return
+    updateDropdownPos()
+    window.addEventListener('scroll', updateDropdownPos, true)
+    window.addEventListener('resize', updateDropdownPos)
+    return () => {
+      window.removeEventListener('scroll', updateDropdownPos, true)
+      window.removeEventListener('resize', updateDropdownPos)
+    }
+  }, [isOpen, updateDropdownPos])
 
   // Load recent projects when opened
   useEffect(() => {
@@ -92,6 +126,7 @@ export function DirectoryPicker({ value, onChange }: Props) {
       {/* Trigger — shows selected project chip or placeholder */}
       {value ? (
         <button
+          ref={triggerRef}
           onClick={() => { setIsOpen(!isOpen); setMode('recent') }}
           className="flex items-center gap-2 px-3 py-1.5 bg-[var(--color-surface-container-low)] hover:bg-[var(--color-surface-hover)] rounded-full text-xs transition-colors border border-[var(--color-border)]"
         >
@@ -118,6 +153,7 @@ export function DirectoryPicker({ value, onChange }: Props) {
         </button>
       ) : (
         <button
+          ref={triggerRef}
           onClick={() => { setIsOpen(!isOpen); setMode('recent') }}
           className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
         >
@@ -126,9 +162,20 @@ export function DirectoryPicker({ value, onChange }: Props) {
         </button>
       )}
 
-      {/* Dropdown */}
-      {isOpen && (
-        <div className="absolute left-0 bottom-full mb-2 w-[400px] z-50 bg-[var(--color-surface-container-lowest)] border border-[var(--color-border)] rounded-xl shadow-[var(--shadow-dropdown)] overflow-hidden">
+      {/* Dropdown — rendered via portal to escape overflow clipping */}
+      {isOpen && dropdownPos && createPortal(
+        <div
+          ref={dropdownRef}
+          className="w-[400px] bg-[var(--color-surface-container-lowest)] border border-[var(--color-border)] rounded-xl shadow-[var(--shadow-dropdown)] overflow-hidden"
+          style={{
+            position: 'fixed',
+            left: dropdownPos.left,
+            ...(dropdownPos.direction === 'down'
+              ? { top: dropdownPos.top }
+              : { bottom: window.innerHeight - dropdownPos.top }),
+            zIndex: 9999,
+          }}
+        >
           {mode === 'recent' ? (
             <>
               <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-[var(--color-outline)]">
@@ -245,7 +292,8 @@ export function DirectoryPicker({ value, onChange }: Props) {
               </div>
             </>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
