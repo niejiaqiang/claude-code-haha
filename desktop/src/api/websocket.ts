@@ -3,52 +3,59 @@ import { getBaseUrl } from './client'
 
 type MessageHandler = (msg: ServerMessage) => void
 
-class WebSocketManager {
-  private ws: WebSocket | null = null
-  private sessionId: string | null = null
-  private handlers = new Set<MessageHandler>()
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private reconnectAttempt = 0
-  private pingInterval: ReturnType<typeof setInterval> | null = null
-  private intentionalClose = false
-  private pendingMessages: ClientMessage[] = []
+type Connection = {
+  ws: WebSocket
+  handlers: Set<MessageHandler>
+  reconnectTimer: ReturnType<typeof setTimeout> | null
+  reconnectAttempt: number
+  pingInterval: ReturnType<typeof setInterval> | null
+  intentionalClose: boolean
+  pendingMessages: ClientMessage[]
+}
 
-  get connected() {
-    return this.ws?.readyState === WebSocket.OPEN
+class WebSocketManager {
+  private connections = new Map<string, Connection>()
+
+  isConnected(sessionId: string): boolean {
+    const conn = this.connections.get(sessionId)
+    return conn?.ws.readyState === WebSocket.OPEN
   }
 
-  get currentSessionId() {
-    return this.sessionId
+  getConnectedSessionIds(): string[] {
+    return [...this.connections.keys()]
   }
 
   connect(sessionId: string) {
-    // Disconnect existing connection if switching sessions
-    if (this.sessionId && this.sessionId !== sessionId) {
-      this.disconnect()
-    }
-
-    this.sessionId = sessionId
-    this.intentionalClose = false
-    this.reconnectAttempt = 0
+    const existing = this.connections.get(sessionId)
+    if (existing && !existing.intentionalClose) return
 
     const wsUrl = getBaseUrl().replace(/^http/, 'ws')
-    this.ws = new WebSocket(`${wsUrl}/ws/${sessionId}`)
+    const ws = new WebSocket(`${wsUrl}/ws/${sessionId}`)
 
-    this.ws.onopen = () => {
-      this.reconnectAttempt = 0
-      this.startPingLoop()
+    const conn: Connection = {
+      ws,
+      handlers: existing?.handlers ?? new Set(),
+      reconnectTimer: null,
+      reconnectAttempt: 0,
+      pingInterval: null,
+      intentionalClose: false,
+      pendingMessages: [],
+    }
+    this.connections.set(sessionId, conn)
 
-      // Flush any pending messages that were queued before connection opened
-      while (this.pendingMessages.length > 0) {
-        const msg = this.pendingMessages.shift()!
-        this.ws!.send(JSON.stringify(msg))
+    ws.onopen = () => {
+      conn.reconnectAttempt = 0
+      this.startPingLoop(sessionId)
+      while (conn.pendingMessages.length > 0) {
+        const msg = conn.pendingMessages.shift()!
+        ws.send(JSON.stringify(msg))
       }
     }
 
-    this.ws.onmessage = (event) => {
+    ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data as string) as ServerMessage
-        for (const handler of this.handlers) {
+        for (const handler of conn.handlers) {
           handler(msg)
         }
       } catch {
@@ -56,81 +63,101 @@ class WebSocketManager {
       }
     }
 
-    this.ws.onclose = () => {
-      this.stopPingLoop()
-      if (!this.intentionalClose && this.sessionId) {
-        this.scheduleReconnect()
+    ws.onclose = () => {
+      this.stopPingLoop(sessionId)
+      if (!conn.intentionalClose && this.connections.get(sessionId) === conn) {
+        this.scheduleReconnect(sessionId, conn)
       }
     }
 
-    this.ws.onerror = () => {
+    ws.onerror = () => {
       // onclose will fire after onerror
     }
   }
 
-  disconnect() {
-    this.intentionalClose = true
-    this.sessionId = null
-    this.stopPingLoop()
-    this.clearReconnect()
-    this.pendingMessages = []
+  disconnect(sessionId: string) {
+    const conn = this.connections.get(sessionId)
+    if (!conn) return
 
-    if (this.ws) {
-      this.ws.close()
-      this.ws = null
+    conn.intentionalClose = true
+    this.stopPingLoop(sessionId)
+    if (conn.reconnectTimer) {
+      clearTimeout(conn.reconnectTimer)
+      conn.reconnectTimer = null
+    }
+    conn.pendingMessages = []
+
+    conn.ws.close()
+    this.connections.delete(sessionId)
+  }
+
+  disconnectAll() {
+    for (const sessionId of [...this.connections.keys()]) {
+      this.disconnect(sessionId)
     }
   }
 
-  send(message: ClientMessage) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message))
-    } else if (this.ws?.readyState === WebSocket.CONNECTING) {
-      // Queue message to be sent when connection opens
-      this.pendingMessages.push(message)
+  send(sessionId: string, message: ClientMessage) {
+    const conn = this.connections.get(sessionId)
+    if (!conn) return
+
+    if (conn.ws.readyState === WebSocket.OPEN) {
+      conn.ws.send(JSON.stringify(message))
+    } else if (conn.ws.readyState === WebSocket.CONNECTING) {
+      conn.pendingMessages.push(message)
     }
   }
 
-  onMessage(handler: MessageHandler) {
-    this.handlers.add(handler)
-    return () => { this.handlers.delete(handler) }
+  onMessage(sessionId: string, handler: MessageHandler): () => void {
+    const conn = this.connections.get(sessionId)
+    if (!conn) return () => {}
+    conn.handlers.add(handler)
+    return () => { conn.handlers.delete(handler) }
   }
 
-  /** Remove all message handlers — call before registering new ones */
-  clearHandlers() {
-    this.handlers.clear()
+  clearHandlers(sessionId: string) {
+    const conn = this.connections.get(sessionId)
+    if (conn) conn.handlers.clear()
   }
 
-  private startPingLoop() {
-    this.stopPingLoop()
-    this.pingInterval = setInterval(() => {
-      this.send({ type: 'ping' })
+  private startPingLoop(sessionId: string) {
+    this.stopPingLoop(sessionId)
+    const conn = this.connections.get(sessionId)
+    if (!conn) return
+    conn.pingInterval = setInterval(() => {
+      this.send(sessionId, { type: 'ping' })
     }, 30_000)
   }
 
-  private stopPingLoop() {
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval)
-      this.pingInterval = null
+  private stopPingLoop(sessionId: string) {
+    const conn = this.connections.get(sessionId)
+    if (conn?.pingInterval) {
+      clearInterval(conn.pingInterval)
+      conn.pingInterval = null
     }
   }
 
-  private scheduleReconnect() {
-    this.clearReconnect()
-    const delay = Math.min(1000 * 2 ** this.reconnectAttempt, 30_000)
-    this.reconnectAttempt++
+  private scheduleReconnect(sessionId: string, conn: Connection) {
+    if (conn.reconnectTimer) {
+      clearTimeout(conn.reconnectTimer)
+    }
 
-    this.reconnectTimer = setTimeout(() => {
-      if (this.sessionId) {
-        this.connect(this.sessionId)
+    const delay = Math.min(1000 * 2 ** conn.reconnectAttempt, 30_000)
+    conn.reconnectAttempt++
+
+    conn.reconnectTimer = setTimeout(() => {
+      if (this.connections.get(sessionId) === conn && !conn.intentionalClose) {
+        this.connections.delete(sessionId)
+        this.connect(sessionId)
+        // Migrate handlers to new connection
+        const newConn = this.connections.get(sessionId)
+        if (newConn) {
+          for (const handler of conn.handlers) {
+            newConn.handlers.add(handler)
+          }
+        }
       }
     }, delay)
-  }
-
-  private clearReconnect() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
   }
 }
 
