@@ -844,6 +844,9 @@ export function McpSettings() {
                   placeholder={t('settings.mcp.form.commandPlaceholder')}
                   required
                 />
+                <p className="mt-2 text-xs leading-5 text-[var(--color-text-tertiary)]">
+                  {t('settings.mcp.form.commandHostHint')}
+                </p>
               </section>
 
               <ArraySection

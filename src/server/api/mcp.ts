@@ -15,6 +15,7 @@ import {
   removeMcpConfig,
   setMcpServerEnabled,
 } from '../../services/mcp/config.js'
+import { inspectMcpHostCommand } from '../services/mcpHostPreflight.js'
 import type {
   ConfigScope,
   McpHTTPServerConfig,
@@ -176,6 +177,35 @@ function getInitialStatus(
   }
 }
 
+async function getHostPreflightStatus(
+  config: ScopedMcpServerConfig | McpServerConfig,
+  enabled: boolean,
+): Promise<Pick<McpServerDto, 'status' | 'statusDetail' | 'statusLabel'> | null> {
+  if (!enabled) {
+    return null
+  }
+
+  if ((config.type ?? 'stdio') !== 'stdio') {
+    return null
+  }
+
+  const stdioConfig = config as McpStdioServerConfig
+  const result = await inspectMcpHostCommand(
+    stdioConfig.command,
+    getCwd(),
+    stdioConfig.env,
+  )
+  if (result.ok) {
+    return null
+  }
+
+  return {
+    status: 'failed',
+    statusLabel: getStatusLabel('failed'),
+    statusDetail: result.message,
+  }
+}
+
 async function inspectServerStatus(
   name: string,
   config: ScopedMcpServerConfig,
@@ -187,6 +217,11 @@ async function inspectServerStatus(
       statusLabel: getStatusLabel('disabled'),
       statusDetail: 'Server disabled for the current project',
     }
+  }
+
+  const hostPreflightStatus = await getHostPreflightStatus(config, enabled)
+  if (hostPreflightStatus) {
+    return hostPreflightStatus
   }
 
   try {
@@ -371,6 +406,13 @@ async function getServerStatus(name: string): Promise<Response> {
   })
 }
 
+async function assertHostPrerequisites(config: McpServerConfig) {
+  const hostPreflightStatus = await getHostPreflightStatus(config, true)
+  if (hostPreflightStatus?.statusDetail) {
+    throw ApiError.badRequest(hostPreflightStatus.statusDetail)
+  }
+}
+
 async function createServer(body: Record<string, unknown>): Promise<Response> {
   const name = typeof body.name === 'string' ? body.name.trim() : ''
   if (!name) {
@@ -379,6 +421,7 @@ async function createServer(body: Record<string, unknown>): Promise<Response> {
 
   const scope = ensureConfigScope(typeof body.scope === 'string' ? body.scope : undefined)
   const config = buildServerConfig(body.config)
+  await assertHostPrerequisites(config)
 
   try {
     await addMcpConfig(name, config, scope)
@@ -410,6 +453,7 @@ async function updateServer(name: string, body: Record<string, unknown>): Promis
 
   const nextScope = ensureConfigScope(typeof body.scope === 'string' ? body.scope : existing.scope)
   const nextConfig = buildServerConfig(body.config)
+  await assertHostPrerequisites(nextConfig)
   const previousConfig = stripScope(existing)
   const previousScope = existing.scope
 
@@ -470,6 +514,14 @@ async function toggleServer(name: string): Promise<Response> {
     return Response.json({ server: updated })
   }
 
+  const hostPreflightStatus = await getHostPreflightStatus(existing, true)
+  if (hostPreflightStatus) {
+    await clearServerCache(name, existing).catch(() => {})
+    return Response.json({
+      server: buildServerDto(name, existing, hostPreflightStatus),
+    })
+  }
+
   const result = await reconnectMcpServerImpl(name, existing)
   await clearServerCache(name, existing).catch(() => {})
 
@@ -489,6 +541,14 @@ async function reconnectServer(name: string): Promise<Response> {
   const existing = await resolveServerForRuntimeAction(name)
   if (!existing) {
     throw ApiError.notFound(`MCP server not found: ${name}`)
+  }
+
+  const hostPreflightStatus = await getHostPreflightStatus(existing, !isMcpServerDisabled(name))
+  if (hostPreflightStatus) {
+    await clearServerCache(name, existing).catch(() => {})
+    return Response.json({
+      server: buildServerDto(name, existing, hostPreflightStatus),
+    })
   }
 
   const result = await reconnectMcpServerImpl(name, existing)

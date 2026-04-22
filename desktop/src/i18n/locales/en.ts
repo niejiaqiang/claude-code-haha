@@ -207,6 +207,7 @@ export const en = {
   'settings.mcp.form.rawConfig': 'Raw config',
   'settings.mcp.form.command': 'Command to launch',
   'settings.mcp.form.commandPlaceholder': 'npx',
+  'settings.mcp.form.commandHostHint': 'STDIO MCP commands run on the host machine. Install runtimes like Node.js, Python, Bun, or uv yourself and make sure the command is available in PATH.',
   'settings.mcp.form.arguments': 'Arguments',
   'settings.mcp.form.argumentPlaceholder': 'chrome-devtools-mcp@latest',
   'settings.mcp.form.addArgument': 'Add argument',

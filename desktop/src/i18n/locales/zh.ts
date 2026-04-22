@@ -209,6 +209,7 @@ export const zh: Record<TranslationKey, string> = {
   'settings.mcp.form.rawConfig': '原始配置',
   'settings.mcp.form.command': '启动命令',
   'settings.mcp.form.commandPlaceholder': 'npx',
+  'settings.mcp.form.commandHostHint': 'STDIO MCP 命令会直接在宿主机上运行。像 Node.js、Python、Bun、uv 这类运行时需要用户自己安装，并确保这个命令在 PATH 里可用。',
   'settings.mcp.form.arguments': '参数',
   'settings.mcp.form.argumentPlaceholder': 'chrome-devtools-mcp@latest',
   'settings.mcp.form.addArgument': '添加参数',

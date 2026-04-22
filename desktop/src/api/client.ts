@@ -9,6 +9,18 @@ const DEFAULT_BASE_URL = ENV_BASE_URL || 'http://127.0.0.1:3456'
 
 let baseUrl = DEFAULT_BASE_URL
 
+function getErrorMessage(status: number, body: unknown) {
+  if (body && typeof body === 'object' && 'message' in body && typeof body.message === 'string') {
+    return body.message
+  }
+
+  if (typeof body === 'string' && body.trim().length > 0) {
+    return body
+  }
+
+  return `API error ${status}`
+}
+
 export function setBaseUrl(url: string) {
   baseUrl = url.replace(/\/$/, '')
 }
@@ -26,7 +38,7 @@ export class ApiError extends Error {
     public status: number,
     public body: unknown,
   ) {
-    super(`API error ${status}: ${typeof body === 'string' ? body : JSON.stringify(body)}`)
+    super(getErrorMessage(status, body))
     this.name = 'ApiError'
   }
 }
