@@ -556,6 +556,9 @@ export class ConversationService {
       typeof options?.providerId === 'string'
         ? await this.providerService.getProviderRuntimeEnv(options.providerId)
         : null
+    if (explicitProviderEnv && options?.model?.trim()) {
+      explicitProviderEnv.ANTHROPIC_MODEL = options.model.trim()
+    }
 
     return {
       ...cleanEnv,

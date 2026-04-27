@@ -165,6 +165,32 @@ describe('ConversationService', () => {
     expect(env.CLAUDE_CODE_ENTRYPOINT).toBeUndefined()
   })
 
+  test('buildChildEnv uses the session-selected model for session-scoped providers', async () => {
+    const providerService = new ProviderService()
+    const provider = await providerService.addProvider({
+      presetId: 'custom',
+      name: 'Switchable',
+      apiKey: 'provider-key',
+      baseUrl: 'https://api.switchable.example',
+      apiFormat: 'openai_chat',
+      models: {
+        main: 'old-provider-main',
+        haiku: 'new-provider-haiku',
+        sonnet: 'new-provider-sonnet',
+        opus: 'new-provider-opus',
+      },
+    })
+
+    const service = new ConversationService() as any
+    const env = (await service.buildChildEnv('/tmp', undefined, {
+      providerId: provider.id,
+      model: 'new-provider-sonnet',
+    })) as Record<string, string>
+
+    expect(env.ANTHROPIC_BASE_URL).toBe(`http://127.0.0.1:3456/proxy/providers/${provider.id}`)
+    expect(env.ANTHROPIC_MODEL).toBe('new-provider-sonnet')
+  })
+
   test('buildChildEnv can force official auth even when a custom default provider exists', async () => {
     const ccHahaDir = path.join(tmpDir, 'cc-haha')
     await fs.mkdir(ccHahaDir, { recursive: true })
